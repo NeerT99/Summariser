@@ -1,0 +1,42 @@
+# This script just allows you to download any YT video as an .mp4 file in 720p. 
+# (note: change to 1080p for higher quality however may not be compatible with all videos)
+
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import Select
+import time
+
+
+def Downloader(URL):
+    # initialize webdriver
+    driver = webdriver.Chrome()
+
+    # navigate to website
+    driver.get("https://y2down.cc/en/")
+
+    # locate the input element by its id
+    input_element = driver.find_element(By.ID, "link")
+
+    # input the desired URL into the element
+    input_element.send_keys(URL)
+
+    select_element = driver.find_element(By.ID, "format")
+    select = Select(select_element)
+    select.select_by_value("720")
+
+    time.sleep(0.5)
+
+    download_button = driver.find_element(By.ID, "load")
+    download_button.click()
+
+    time.sleep(10)
+
+    download_button_2 = driver.find_element(By.XPATH, "//*[contains(@id, 'downloadButton')]")
+    download_button_2.click()
+    time.sleep(20)
+
+    print('File saved to downloads folder...')
+
+# Single
+URL = input('URL of File to Download?')
+Downloader(URL)
