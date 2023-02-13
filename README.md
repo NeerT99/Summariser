@@ -11,3 +11,7 @@ This script uses ChatGPT to summarise any youtube video. This is how it works:
   
   Note: Script will not work if ChatGPT is at full capacity thus you will have to run the script at a quieter time. 
   Also working on a solution for ChatGPT Plus users in the meantime. 
+
+Downloader
+------------
+note: this does not need to be part of the above script, and is here simply for those who want to downloading individual youtube videos
