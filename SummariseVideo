@@ -1,0 +1,271 @@
+import credentials
+import glob
+import os
+import shutil
+import time
+import undetected_chromedriver as uc
+import whisper
+
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import Select
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
+
+from pydub import AudioSegment
+from pydub.utils import make_chunks
+
+
+# Input URL
+# Download Video
+# Put into Main Folder
+# Create Transcript and Prompts
+
+URL = input('What is the URL of the Video You would like to summarise? --> ')
+
+def Downloader(URL):
+    # initialize webdriver
+    driver = uc.Chrome()
+    wait = WebDriverWait(driver, 10)
+
+    # navigate to website
+    driver.get("https://y2down.cc/en/")
+
+    # locate the input element by its id
+    input_element = driver.find_element(By.ID, "link")
+
+    # input the desired URL into the element
+    input_element.send_keys(URL)
+
+    select_element = driver.find_element(By.ID, "format")
+    select = Select(select_element)
+    select.select_by_value("mp3")
+
+    time.sleep(0.5)
+
+    download_button = driver.find_element(By.ID, "load")
+    download_button.click()
+
+    print('Waiting for Download...')
+    time.sleep(120)
+    download_button_2 = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[id*='downloadButton']")))
+    download_button_2.click()
+
+    print('Downloading File')
+    time.sleep(60)
+
+    driver.quit()
+
+    print('File saved to downloads folder...')
+
+Downloader(URL)
+
+time.sleep(10)
+
+# set the path to the downloads folder
+downloads_folder = '/Users/{path}/Downloads/'
+
+# set the path to the main folder
+main_folder = '/Users/{path}'
+
+# get the list of files in the downloads folder
+files = os.listdir(downloads_folder)
+
+# find the most recent .mp3 file
+most_recent_file = None
+most_recent_time = 0
+for file in files:
+    if file.endswith('.mp3'):
+        file_path = os.path.join(downloads_folder, file)
+        file_time = os.path.getmtime(file_path)
+        if file_time > most_recent_time:
+            most_recent_time = file_time
+            most_recent_file = file
+
+if most_recent_file:
+    src_path = os.path.join(downloads_folder, most_recent_file)
+    dst_path = os.path.join(main_folder, 'audio.mp3')
+    shutil.move(src_path, dst_path)
+    print("File moved and renamed successfully!")
+else:
+    print("No .mp3 file found in the downloads folder.")
+
+filename = "audio"
+
+def createSegments():
+    # Create the folder if it doesn't already exist
+    if not os.path.exists("audioSegments"):
+        os.makedirs("audioSegments")
+
+    print('Creating Audio Segments... Please Wait')
+
+    mp3_file = AudioSegment.from_mp3(filename+".mp3")
+
+    segment_length = 30  # seconds
+    num_segments = mp3_file.duration_seconds // segment_length
+
+    # If the file is not evenly divisible into 30-second segments, then add one additional segment
+    if mp3_file.duration_seconds % segment_length != 0:
+        num_segments += 1
+
+    # Split the file into segments
+    for i in range(int(num_segments)):
+        start_time = i * segment_length * 1000  # pydub works with milliseconds
+        end_time = (i + 1) * segment_length * 1000
+        segment = mp3_file[start_time:end_time]
+        segment.export(f"audioSegments/segment{i+1}.mp3", format="mp3")
+
+def createTranscription():
+    model = whisper.load_model("base")
+
+    # Get a list of all the mp3 files in the audioSegments folder
+    mp3_files = glob.glob("audioSegments/*.mp3")
+
+    mp3_files = sorted(mp3_files)
+
+    with open("Transcription.txt", "w") as f:
+        # Loop through the audio files and transcribe them
+        for mp3_file in mp3_files:
+            audio = whisper.load_audio(mp3_file)
+            audio = whisper.pad_or_trim(audio)
+            mel = whisper.log_mel_spectrogram(audio).to(model.device)
+            options = whisper.DecodingOptions(fp16 = False)
+            result = whisper.decode(model, mel, options)
+
+            print(result.text)
+            print('Transcribing Text... Please Wait')
+            f.write(result.text + "\n")
+
+
+# ChatGPT has around a 16000 character limit per prompt. So if our transcript is greater than 15k characters, need to split it into chunks.
+def adjustTranscription():
+
+    with open('Transcription.txt', 'r') as input_file:
+        text = input_file.read()
+        
+    num_chars = len(text)
+    print(f'The number of characters in the file is: {num_chars}')
+    max_chars_per_file = 15000
+   
+    
+    # Check if the number of characters is greater than the maximum number of characters per file
+    if num_chars > max_chars_per_file:
+        # Calculate the number of files needed to store the text
+        num_files = num_chars // max_chars_per_file + 1 if num_chars > max_chars_per_file else 1
+        text_chunks = [text[i:i+max_chars_per_file] for i in range(0, len(text), max_chars_per_file)]
+        for i, chunk in enumerate(text_chunks):
+            with open(f'outputTranscript_{i}.txt', 'w') as output_file:
+                output_file.write(chunk)
+    else:
+        with open("Transcription.txt", "r") as f:
+            transcription = f.read()
+
+        with open("summaryPrompt.txt", "w") as f:
+            f.write("I want you to read through this transcript and give me a summary of it. Keep it detailed, and display this in bullet point form. \n")
+            f.write(transcription)
+            f.write("\n\n")
+
+    for i in range(num_files):
+        with open(f'outputTranscript_{i}.txt', "r") as f:
+            transcription = f.read()
+        with open("summaryPrompt.txt", "a") as f:
+            f.write("I want you to read through this transcript and give me a summary of it. Keep it detailed, and display this in bullet point form. \n")
+            f.write(transcription)
+            f.write("\n\n")
+
+
+def GPT():
+    driver.get('https://google.com/')
+    wait = WebDriverWait(driver, 10)
+    # Sign in to Gmail
+    sign_in_button = wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="gksS1d"]/div')))
+    sign_in_button.click()
+    email_input = wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="identifierId"]')))
+    email_input.send_keys("credentials.gmailLogin")
+    next_button = wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="identifierNext"]/div/button/span')))
+    next_button.click()
+    password_input = wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="password"]/div[1]/div/div[1]/input')))
+    password_input.send_keys("credentials.gmailPass")
+    next_button = wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="passwordNext"]/div/button/span')))
+    next_button.click()
+    print('Logged in to Gmail')
+
+    # Sign in to ChatGPT
+    print('Loading ChatGPT...')
+    driver.get("https://chat.openai.com/")
+    time.sleep(2)
+    
+    print('Attempting to bypass Captcha')
+    try:
+        login_button = wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="__next"]/div[1]/div/div[4]/button[1]')))
+        login_button.click()
+    except Exception as e:
+        print("ChatGPT is busy right now, try again later.", str(e))
+    # Captcha
+    try:
+        element = wait.until(EC.element_to_be_clickable((By.XPATH,"//*[@id='cf-stage']/div[6]/label/span")))
+        element.click()
+    except:
+        pass
+
+    email_input = wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="username"]')))
+    email_input.send_keys("credentials.emailGPT")
+    continue_button = wait.until(EC.element_to_be_clickable((By.XPATH, '/html/body/main/section/div/div/div/form/div[2]/button')))
+    continue_button.click()
+    password_input = wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="password"]')))
+    password_input.send_keys("credentials.passGPT")
+    continue_button = wait.until(EC.element_to_be_clickable((By.XPATH, '/html/body/main/section/div/div/div/form/div[2]/button')))
+    continue_button.click()
+    print('Logged in to ChatGPT')
+    time.sleep(1)
+
+    # Click through conditions
+    button = wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="headlessui-dialog-panel-:r1:"]/div[2]/div[4]/button')))
+    button.click()
+    button = wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="headlessui-dialog-panel-:r1:"]/div[2]/div[4]/button[2]')))
+    button.click()
+    button = wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="headlessui-dialog-panel-:r1:"]/div[2]/div[4]/button[2]')))
+    button.click()
+
+    # Enter Prompt
+    with open("summaryPrompt.txt", "r") as f:
+        transcript_list = f.read().split("\n\n")
+   
+    i = 5
+    for transcript in transcript_list:
+        text = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, '//*[@id="__next"]/div[1]/div[1]/main/div[2]/form/div/div[2]/textarea')))
+        text.send_keys(transcript)
+        time.sleep(5)
+        send = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, '//*[@id="__next"]/div[1]/div[1]/main/div[2]/form/div/div[2]/button')))
+        send.click()
+        time.sleep(1)
+
+        # Get Response
+        wait = WebDriverWait(driver, 60)
+        button = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[@id='__next']/div[1]/div[1]/main/div[2]/form/div/div[2]/button")))
+        print('attempting to get response')
+        time.sleep(1)
+        text_box = driver.find_element(By.XPATH, "//*[@id='__next']/div[1]/div[1]/main/div[1]/div/div/div/div[{i}]/div/div[2]/div[1]/div/div/p")
+        print('getting resp')
+        print('\n', text_box.text, '\n' )\
+        
+        # Append each response from the prompts to a new file called 'Response'
+        # note: the summary will be in this file.
+        with open('response.txt', 'a') as f:
+          f.write(text_box.text)
+          
+        i += 4
+    time.sleep(5)
+
+    print('Done.')
+    print('Logging out of ChatGPT')
+    time.sleep(1)
+    driver.quit()
+
+
+createSegments()
+createTranscription()
+print('Transcription Complete...')
+print('Creating Prompts... Please Wait!')
+adjustTranscription()
+driver = uc.Chrome()
+GPT()
